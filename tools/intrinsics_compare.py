@@ -6,6 +6,7 @@ from xml.etree import ElementTree
 from pathlib import Path
 import argparse
 import re
+import subprocess
 
 DEFAULT_SKIP_TECHS = [
     "MMX",
@@ -30,16 +31,23 @@ parser.add_argument("-o", "--output", help="output type (txt/csv)", default="csv
 parser.add_argument("-i", "--include-files", help="include the file names where the intrinsics are found in the output", action="store_true")
 parser.add_argument("--include-ss-sd", help="count SS and SD intrinsics", action="store_true")
 parser.add_argument("--include-mmx", help="count MMX intrinsics", action="store_true")
+parser.add_argument("--include-macros", help="skip intrinsics with the specified macros", action="store_true")
 parser.add_argument("--skip-tech", help="skip intrinsics with the specified techs", type=str, nargs="+", default=DEFAULT_SKIP_TECHS)
 parser.add_argument("--skip-cat", help="skip intrinsics with the specified categories", type=str, nargs="+", default=DEFAULT_SKIP_CATEGORIES)
+parser.add_argument("-c", "--cmp-folder", help="folder to compare with", type=str, default="eve")
 
 args = parser.parse_args()
 
+# get the top level path using git
+top_level = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], stdout=subprocess.PIPE).stdout.decode().strip())
+include_path = top_level / 'include' / args.cmp_folder
+
+if not include_path.exists():
+    print(f"Path {include_path} does not exist")
+    sys.exit(1)
+
 COMMENT_PATTERN = re.compile(r'//.*?$|/\*.*?\*/|\'(?:\\.|[^\\\'])*\'|"(?:\\.|[^\\"])*"', re.DOTALL | re.MULTILINE)
-
-# Pattern to match C++ strings, including escaped quotes and newlines
 STRING_PATTERN = re.compile(r'"(?:[^"\\]|\\.)*"', re.DOTALL)
-
 
 def get_intrinsics_xml_url():
     print("Fetching the latest intrinsics data...")
@@ -92,27 +100,34 @@ def parse_intrinsics(xml):
         tech = intr.get("tech") # instruction set
         cat = intr.find("category").text # instruction kind
 
+        # skip intrinsics with the specified techs or categories
         if tech in args.skip_tech or cat in args.skip_cat:
             continue
 
+        # CPUID flags
         cpuid = intr.find("CPUID").text if intr.find("CPUID") is not None else ""
 
-        if not args.include_ss_sd and name.endswith("_sd") or name.endswith("_ss"):
+        # skip SS and SD intrinsics if requested 
+        if not args.include_ss_sd and (name.endswith("_sd") or name.endswith("_ss")):
             continue
 
         # generates an instruction sequence
-        is_sequence = intr.get("sequence") == "true"
+        is_sequence = intr.get("sequence") == "TRUE"
 
         # return type of the intrinsic
         ret = intr.find("return")
         if ret is None:
-            print(f"Skipping intrinsic {name} with no return type")
+            print(f"Skipping ill-formed intrinsic {name} with no return type")
             continue
         
         ret_type = ret.get("type")
         params = [ ( p.get("type"), p.get("varname") ) for p in intr.findall("parameter") ]
         desc = intr.find("description").text.replace("\n", " ").strip()
 
+        if not args.include_macros and desc.startswith("Macro:"):
+            continue
+
+        # ignore MMX intrinsics or those using MMX types in input or output
         if not args.include_mmx and (tech == "MMX" or "__m64" in ret_type or any(["__m64" in t for t, _ in params])):
             continue
 
@@ -135,11 +150,9 @@ def parse_intrinsics(xml):
 
 def find_intrinsics_used(kb):
     print("finding intrinsics used in eve...")
-    
-    core_path = Path("../include/eve")
 
     # glob all hpp files in core
-    for file in core_path.glob("**/*.hpp"):
+    for file in include_path.glob("**/*.hpp"):
         with open(file, "r") as f:
             data = f.read()
         
@@ -155,13 +168,13 @@ def find_intrinsics_used(kb):
                 found_in_file.append(intrinsic)
 
         if args.verbose and len(found_in_file) > 0:
-            print(f"Found {len(found_in_file)} intrinsics in {file.name}")
+            print(f"Found {len(found_in_file)} intrinsics in {file}")
 
 intrinsics = parse_intrinsics(get_intrinsics_def(get_intrinsics_xml_url()))
 print(f"Intel intrinsics parsed, found {len(intrinsics)} entries")
 
 used_intrinsics = find_intrinsics_used(intrinsics)
-print(f"Done! Found {sum([intrinsics[x]['in_eve'] for x in intrinsics])} intrinsics usage in eve/core")
+print(f"Done! Found {sum([intrinsics[x]['in_eve'] for x in intrinsics])} intrinsics usage in include/{args.cmp_folder}")
 
 sorted_intrinsics = sorted(intrinsics.items(), key=lambda x: (-x[1]["in_eve"], x[1]["tech"], x[1]["cpuid"], x[1]["cat"]))
 # print(f"Top 10 most used intrinsics in eve/core: \n\t{'\n\t'.join([f'{x[0]}: {x[1]["in_eve"]}' for x in sorted_intrinsics[:10]])}")
@@ -175,7 +188,7 @@ if args.output == "txt":
     with open("./cache/usage.txt", "w") as f:
         f.write(f"{'Name':<{max_name_len}} {'Used':>3} - {'Tech':<{max_tech_len}} {'CPUID':<{max_cpuid_len}} {'Category':<{max_cat_len}} (Description)\n")
         for i in sorted_intrinsics:
-            f.write(f"{i[0]:<{max_name_len}} {i[1]['in_eve']:>3} - {i[1]['tech']:<{max_tech_len}} {i[1]['cpuid']:<{max_cpuid_len}} {i[1]['cat']:<{max_cat_len}} ({i[1]['desc']})\n")
+            f.write(f"{i[0]:<{max_name_len}} {i[1]['in_eve']:>3} - {i[1]['tech']:<{max_tech_len}} {i[1]['cpuid']:<{max_cpuid_len}} {i[1]['cat']:<{max_cat_len}} {'yes' if i[1]['seq'] else 'no '} ({i[1]['desc']})\n")
 
     if args.include_files:
         with open("./cache/usage_files.txt", "w") as f:
@@ -186,9 +199,9 @@ if args.output == "txt":
 elif args.output in ["csv", "excel_csv"]:
     with open("./cache/usage.csv", "w") as f:
         if args.output == "excel_csv":
-            f.write("\"sep=,\"\nname,used,tech,cpuid,cat,desc\n")
+            f.write("\"sep=,\"\nname,used,tech,cpuid,cat,is_sequence,desc\n")
         else:
-            f.write("name,used,tech,cpuid,cat,desc\n")
+            f.write("name,used,tech,cpuid,cat,is_sequence,desc\n")
         
         for i in sorted_intrinsics:
-            f.write(f"{i[0]},{i[1]['in_eve']},{i[1]['tech']},{i[1]['cpuid']},{i[1]['cat']},\"{i[1]['desc'].replace('"', '""')}\"\n")
+            f.write(f"{i[0]},{i[1]['in_eve']},{i[1]['tech']},{i[1]['cpuid']},{i[1]['cat']},{'yes' if i[1]['seq'] else 'no'},\"{i[1]['desc'].replace('"', '""')}\"\n")
