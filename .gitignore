@@ -45,3 +45,4 @@ Testing/*
 doc/docs/*
 .cache/
 .idea/
+*.DS_Store
