@@ -26,8 +26,11 @@ for tag, tag_name in zip(tags, tag_names):
     idx = tag_df['Name'].map(sort_name).argsort()
     tag_df = tag_df.iloc[idx]
 
+    # map the Name colums
+    tag_df['Name'] = tag_df['Name'].map(lambda x: f"`{x}`")
+
     # add checkbox column at the begining
-    # tag_df.insert(0, '✓', '\u274c')
+    tag_df.insert(0, '✓', '\u274c')
     
     # output to markdown
     with open(f'out/meow/{tag_name}.md', 'w') as f:
@@ -49,8 +52,9 @@ for tag, tag_name in zip(tags, tag_names):
 
             res = pd.concat(quarters, axis=1)
 
-            # remove the nans
+            # add a checkbox at the begining of each cell
             res = res.fillna('')
+            res = res.map(lambda x: '\u274c ' + x if x else x)
 
             md = res.to_markdown(index=False)
             
