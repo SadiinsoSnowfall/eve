@@ -53,6 +53,10 @@ if( EVE_BUILD_TEST )
   include(target/targets)
   add_subdirectory("${PROJECT_SOURCE_DIR}/test/")
   add_subdirectory("${PROJECT_SOURCE_DIR}/examples/")
+
+  if( EVE_TEST_COVERAGE )
+    include(config/coverage)
+  endif()
 endif()
 
 if( EVE_BUILD_BENCHMARKS )
