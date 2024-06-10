@@ -38,6 +38,13 @@ namespace eve
     using type = eve::wide<Type, Size>;
   };
 
+  template<typename Type, typename Size>
+  requires (requires { typename Type::eve_fundamental_type; })
+  struct as_wide<Type, Size>
+  {
+    using type = eve::wide<Type, Size>;
+  };
+
   template<typename T, typename Size>
   struct as_wide<eve::logical<T>,Size>
   {

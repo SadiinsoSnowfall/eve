@@ -149,7 +149,7 @@ namespace eve
   }
 
   template<typename T, typename N, typename ABI>
-  using as_logical_register_t = decltype(as_logicak_register(as<T>{},N{}, ABI{}));
+  using as_logical_register_t = decltype(as_logical_register(as<T>{},N{}, ABI{}));
 }
 
 template<std::size_t I, typename T, typename C>
