@@ -17,6 +17,8 @@
 
 namespace eve::detail
 {
+  struct ignore_t { };
+
   // Values list helper
   template<auto... Values>
   struct values
