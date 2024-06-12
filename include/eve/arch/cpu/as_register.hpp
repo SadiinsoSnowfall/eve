@@ -18,29 +18,17 @@
 
 namespace eve
 {
-  template<typename Type, typename Cardinal, typename ABI>
-  struct as_register;
-
-  template<typename Type, typename Cardinal, typename ABI>
-  struct as_logical_register;
-
-  template<typename Type, typename Cardinal, typename ABI>
-  using as_register_t = typename as_register<Type, Cardinal, ABI>::type;
-
-  template<typename Type, typename Cardinal, typename ABI>
-  using as_logical_register_t = typename as_logical_register<Type, Cardinal, ABI>::type;
-
-  template<typename Type, typename Cardinal>
-  struct as_register<Type, Cardinal, eve::emulated_>
+  template<typename T, typename N>
+  consteval auto find_register_type(as<T>, N, eve::emulated_)
   {
-    using type = std::array<Type, Cardinal::value>;
-  };
+    return std::array<T, N::value>{};
+  }
 
-  template<typename Type, typename Cardinal>
-  struct as_logical_register<Type, Cardinal, eve::emulated_>
+  template<typename T, typename N>
+  consteval auto find_logical_register_type(as<T>, N, eve::emulated_)
   {
-    using type = std::array<logical<Type>, Cardinal::value>;
-  };
+    return std::array<T, N::value>{};
+  }
 
   //================================================================================================
   // Special case : product_type
@@ -55,11 +43,11 @@ namespace eve
 
   template<typename Type, typename Cardinal>
   requires( kumi::product_type<Type> )
-  struct  as_register<Type, Cardinal, eve::bundle_>
-        : kumi::as_tuple<Type, detail::apply_as_wide<Cardinal>::template type>
+  consteval auto find_register_type(as<Type>, Cardinal, eve::bundle_)
   {
-  };
-
+    return kumi::as_tuple_t<Type, detail::apply_as_wide<Cardinal>::template type>{};
+  }
+  
   namespace detail
   {
     template<typename Type, typename Cardinal>
@@ -113,17 +101,43 @@ namespace eve
     };
   }
 
-  template<typename Type, typename Cardinal>
-  struct as_register<Type, Cardinal, eve::aggregated_>
+  template<typename T, typename N>
+  consteval auto find_register_type(as<T>, N, eve::aggregated_)
   {
-    using type = detail::blob<Type,Cardinal>;
-  };
+    return detail::blob<T,N>{};
+  }
 
-  template<typename Type, typename Cardinal>
-  struct as_logical_register<Type, Cardinal, eve::aggregated_>
+  template<typename T, typename N>
+  consteval auto find_logical_register_type(as<T>, N, eve::aggregated_)
   {
-    using type = detail::blob<logical<Type>,Cardinal>;
-  };
+    return detail::blob<T,N>{};
+  }
+
+  template<typename T, typename N, typename ABI>
+  consteval auto as_register(as<T> t, N n, ABI abi)
+  {
+    auto reg_type = find_register_type(t, n, abi);
+
+    static_assert(!std::is_void_v<decltype(reg_type)>, "[EVE] - Type is not usable in a SIMD register");
+    
+    return reg_type;
+  }
+
+  template<typename T, typename N, typename ABI>
+  using as_register_t = decltype(as_register(as<T>{},N{}, ABI{}));
+
+  template<typename T, typename N, typename ABI>
+  consteval auto as_logical_register(as<T> t, N n, ABI abi)
+  {
+    auto reg_type = find_logical_register_type(t, n, abi);
+
+    static_assert(!std::is_void_v<decltype(reg_type)>, "[EVE] - Type is not usable in a SIMD register");
+    
+    return reg_type;
+  }
+
+  template<typename T, typename N, typename ABI>
+  using as_logical_register_t = decltype(as_logical_register(as<T>{},N{}, ABI{}));
 }
 
 template<std::size_t I, typename T, typename C>
